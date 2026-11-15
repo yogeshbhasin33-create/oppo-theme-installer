@@ -4,7 +4,6 @@ import org.xml.sax.InputSource
 import java.io.File
 import java.io.StringReader
 import java.util.zip.ZipFile
-import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 
 data class ThemeInfo(
@@ -107,22 +106,9 @@ object ThemeArchive {
 
     private fun parseInfo(xml: String): ThemeInfo {
         require(!xml.contains("<!DOCTYPE", ignoreCase = true)) { "DOCTYPE declarations are not allowed." }
+        // Android's XML parser rejects the desktop-JVM hardening features (they throw at runtime).
+        // DOCTYPE is already refused above, so entity/DTD attacks are not possible.
         val factory = DocumentBuilderFactory.newInstance().apply {
-            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-            setFeature("http://xml.org/sax/features/external-general-entities", false)
-            setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-            setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
-            runCatching {
-    factory.setAttribute(
-        "http://javax.xml.XMLConstants/property/accessExternalDTD", ""
-    )
-            }
-            runCatching {
-    factory.setAttribute(
-        "http://javax.xml.XMLConstants/property/accessExternalSchema", ""
-    )
-            }
-            isXIncludeAware = false
             isExpandEntityReferences = false
         }
         val doc = factory.newDocumentBuilder().parse(InputSource(StringReader(xml)))
