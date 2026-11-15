@@ -1,6 +1,7 @@
 package com.oppo.themeinstaller
 
 import android.app.WallpaperManager
+import android.content.ComponentName
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -49,6 +50,7 @@ fun ThemeInstallerScreen() {
     var status by remember { mutableStateOf("Import an OPPO .theme file to inspect it.") }
     var savedTheme by remember { mutableStateOf<File?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var styleReady by remember { mutableStateOf(false) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
@@ -56,14 +58,20 @@ fun ThemeInstallerScreen() {
                 busy = true
                 status = "Inspecting theme package…"
                 try {
-                    val result = withContext(Dispatchers.IO) {
+                    val packed = withContext(Dispatchers.IO) {
                         val dest = File(context.filesDir, "imported_theme.theme")
                         context.contentResolver.openInputStream(uri).use { input ->
                             requireNotNull(input) { "Could not open selected file." }
                             FileOutputStream(dest).use { output -> input.copyTo(output) }
                         }
-                        ThemeArchive.inspect(dest)
+                        val inspected = ThemeArchive.inspect(dest)
+                        val extracted = try {
+                            ThemeArchive.extractLockStyle(dest, File(context.filesDir, "lockstyle"))
+                        } catch (e: Exception) { false }
+                        Pair(inspected, extracted)
                     }
+                    styleReady = packed.second
+                    val result = packed.first
                     info = result.info
                     preview = result.previewFile?.let { BitmapFactory.decodeFile(it.absolutePath) }
                     savedTheme = File(context.filesDir, "imported_theme.theme")
@@ -154,6 +162,24 @@ fun ThemeInstallerScreen() {
                             modifier = Modifier.fillMaxWidth(),
                             enabled = preview != null && savedTheme != null
                         ) { Text("Apply preview to lock screen") }
+
+                        Button(
+                            onClick = {
+                                try {
+                                    val live = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER)
+                                        .putExtra(
+                                            WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
+                                            ComponentName(context, LockStyleWallpaperService::class.java)
+                                        )
+                                    context.startActivity(live)
+                                    status = "Choose to set the live wallpaper on the lock screen in the preview that opened."
+                                } catch (e: Exception) {
+                                    status = "Could not open the live wallpaper picker: ${e.message}"
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = styleReady
+                        ) { Text("Apply lock-screen style (clock + date + background)") }
 
                         OutlinedButton(
                             onClick = {
