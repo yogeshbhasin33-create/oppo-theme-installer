@@ -4,6 +4,7 @@ import org.xml.sax.InputSource
 import java.io.File
 import java.io.StringReader
 import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
 import javax.xml.parsers.DocumentBuilderFactory
 
 data class ThemeInfo(
@@ -101,6 +102,43 @@ object ThemeArchive {
                 }
             }
             return out
+        }
+    }
+
+    /** Unpacks the nested lockscreen/lockstyle archive into outDir. Returns true if a manifest was found. */
+    fun extractLockStyle(themeFile: File, outDir: File): Boolean {
+        ZipFile(themeFile).use { zip ->
+            val entry = zip.getEntry("lockscreen/lockstyle") ?: return false
+            if (outDir.exists()) outDir.deleteRecursively()
+            outDir.mkdirs()
+            val root = outDir.canonicalPath + File.separator
+            var total = 0L
+            var count = 0
+            ZipInputStream(zip.getInputStream(entry)).use { zin ->
+                while (true) {
+                    val e = zin.nextEntry ?: break
+                    count++
+                    require(count <= MAX_ENTRIES) { "Lock style has too many entries." }
+                    val target = File(outDir, e.name)
+                    require(target.canonicalPath.startsWith(root)) { "Unsafe path in lock style." }
+                    if (e.isDirectory) {
+                        target.mkdirs()
+                        continue
+                    }
+                    target.parentFile?.mkdirs()
+                    target.outputStream().use { out ->
+                        val buffer = ByteArray(8192)
+                        while (true) {
+                            val n = zin.read(buffer)
+                            if (n < 0) break
+                            total += n
+                            require(total <= MAX_TOTAL_UNCOMPRESSED) { "Lock style expands beyond the allowed size." }
+                            out.write(buffer, 0, n)
+                        }
+                    }
+                }
+            }
+            return File(outDir, "advance/manifest.xml").isFile
         }
     }
 
